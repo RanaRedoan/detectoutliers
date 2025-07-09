@@ -1,7 +1,7 @@
 {smcl}
 {* 03jul2024}{...}
 {hline}
-help for {hi:biascheck}
+help for {hi:outliers}
 {hline}
 
 {title:Title}
