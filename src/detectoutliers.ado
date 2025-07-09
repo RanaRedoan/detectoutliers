@@ -1,29 +1,23 @@
-*! detectoutliers v1.8 - Final robust solution
+*! detectoutliers v1.9 - Simplified in-place version
 program define detectoutliers
     version 17
     syntax varlist(numeric), ///
         sd(real) ///
         addvars(varlist) ///
-        [except(numlist)] ///
-        [export(string)] ///
-        [replace]
+        [except(numlist)]
 
-    * Create temporary dataset for processing
-    tempfile master_copy
-    qui save "`master_copy'", replace
-
-    * Initialize Excel export if requested
-    if "`export'" != "" {
-        if "`replace'" != "" {
-            cap erase "`export'"
-        }
-        tempfile results
-    }
+    * Clear previous results if they exist
+    cap drop __variable __varlabel __value
+    
+    * Create empty dataset for results
+    preserve
+    clear
+    tempfile results
+    save "`results'", emptyok replace
+    restore
 
     * Process each variable
     foreach var of varlist `varlist' {
-        use "`master_copy'", clear
-        
         * Handle exception values
         tempvar cleanvar
         gen `cleanvar' = `var'
@@ -38,40 +32,29 @@ program define detectoutliers
         gen outlier = !missing(`cleanvar') & ///
                      (abs(`cleanvar' - r(mean)) > `sd' * r(sd))
 
-        * Generate output
-        if "`export'" != "" {
-            preserve
-            keep if outlier
-            if _N > 0 {
-                gen variable = "`var'"
-                local varlabel : var label `var'
-                gen varlabel = "`varlabel'"
-                gen value = `cleanvar'
-                
-                keep `addvars' variable varlabel value
-                append using "`results'", force
-                save "`results'", replace
-            }
-            restore
-        }
-        else {
-            list `addvars' `var' if outlier, noobs sepby(`var')
-        }
-    }
-
-    * Final Excel export if requested
-    if "`export'" != "" {
-        use "`results'", clear
+        * Store results
+        preserve
+        keep if outlier
         if _N > 0 {
-            export excel using "`export'", firstrow(variables) sheet("Outliers") replace
-            di as green "Results exported to: `export'"
+            gen __variable = "`var'"
+            local varlabel : var label `var'
+            gen __varlabel = "`varlabel'"
+            gen __value = `cleanvar'
+            
+            keep `addvars' __variable __varlabel __value
+            append using "`results'"
+            save "`results'", replace
         }
-        else {
-            di as yellow "No outliers found to export"
-        }
+        restore
+        drop outlier `cleanvar'
     }
 
-    * Restore original data
-    use "`master_copy'", clear
-    di as green "Outlier detection completed"
+    * Replace original data with results
+    use "`results'", clear
+    order `addvars' __variable __varlabel __value
+    label var __variable "Variable name"
+    label var __varlabel "Variable label"
+    label var __value "Outlier value"
+    
+    di as green "Outlier detection complete. Type 'br' to view results."
 end
