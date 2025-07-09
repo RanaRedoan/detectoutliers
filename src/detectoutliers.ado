@@ -1,21 +1,23 @@
-*! detectoutliers v1.5 - Robust version of user's working code
+*! detectoutliers v1.6 - Fixed preserve/restore issue
 program define detectoutliers
     version 17
     syntax varlist(numeric), ///
-        SD(real)             /// Standard deviation threshold
-        ADDVars(varlist)     /// ID/enumerator variables (sup enum fielddate key)
-        [EXcept(numlist)]    /// Values to treat as non-outliers (-99 999)
-        [EXPort(string)]     /// Excel output path
-        [REPLACE]           /// Overwrite existing file
-
-    preserve
+        sd(real)             ///
+        addvars(varlist)     ///
+        [except(numlist)]    ///
+        [export(string)]     ///
+        [replace]
+    
+    * Check preservation state
+    local preserved = c(preserved)
+    if !`preserved' preserve
     
     * Initialize Excel export
     if "`export'" != "" {
-        if "`replace'" != "" cap rm "`export'"
+        if "`replace'" != "" capture rm "`export'"
         local row = 1
         local header "firstrow(variables)"
-        local sheetsettings "sheet("Outlier") sheetreplace"
+        local sheetsettings `"sheet("Outlier") sheetreplace"'
     }
 
     * Process each variable
@@ -36,8 +38,8 @@ program define detectoutliers
         * Detect outliers
         qui sum `cleanvar'
         gen outlier = ((`cleanvar' > (r(mean) + `sd'*r(sd))) | ///
-                      (`cleanvar' < (r(mean) - `sd'*r(sd)))) & ///
-                      !missing(`cleanvar')
+                     ((`cleanvar' < (r(mean) - `sd'*r(sd)))) & ///
+                     !missing(`cleanvar')
         
         * Prepare output
         if "`export'" != "" {
@@ -54,7 +56,7 @@ program define detectoutliers
                 
                 local row = `row' + _N
                 local header ""
-                local sheetsettings "sheet("Outlier") sheetmodify"
+                local sheetsettings `"sheet("Outlier") sheetmodify"'
             }
             restore
         }
@@ -65,6 +67,6 @@ program define detectoutliers
         drop outlier `cleanvar'
     }
     
-    restore
+    if !`preserved' restore
     di as green "Outlier detection completed"
 end
