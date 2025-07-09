@@ -7,7 +7,7 @@ help for {hi:outliers}
 {title:Title}
 
 {p 4 4 2}
-{bf:biascheck} - Generate enumerator bias reports for categorical variables
+{bf:outliers} - Generate enumerator bias reports for categorical variables
 
 {title:Syntax}
 
