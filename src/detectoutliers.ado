@@ -1,4 +1,4 @@
-*! detectoutliers v1.7 - Fully robust version
+*! detectoutliers v1.8 - Final robust solution
 program define detectoutliers
     version 17
     syntax varlist(numeric), ///
@@ -8,22 +8,23 @@ program define detectoutliers
         [export(string)] ///
         [replace]
 
-    * Main preservation block
-    local already_preserved = c(preserved)
-    if !`already_preserved' preserve
+    * Create temporary dataset for processing
+    tempfile master_copy
+    qui save "`master_copy'", replace
 
     * Initialize Excel export if requested
     if "`export'" != "" {
         if "`replace'" != "" {
             cap erase "`export'"
         }
-        tempfile tempresults
-        local excel_mode 1
+        tempfile results
     }
 
     * Process each variable
     foreach var of varlist `varlist' {
-        * Create clean version (handling exceptions)
+        use "`master_copy'", clear
+        
+        * Handle exception values
         tempvar cleanvar
         gen `cleanvar' = `var'
         if "`except'" != "" {
@@ -35,10 +36,10 @@ program define detectoutliers
         * Calculate outliers
         qui sum `cleanvar', detail
         gen outlier = !missing(`cleanvar') & ///
-                     (abs(`cleanvar' - r(mean)) > `sd' * r(sd)
+                     (abs(`cleanvar' - r(mean)) > `sd' * r(sd))
 
-        * Handle output
-        if "`excel_mode'" == "1" {
+        * Generate output
+        if "`export'" != "" {
             preserve
             keep if outlier
             if _N > 0 {
@@ -48,26 +49,29 @@ program define detectoutliers
                 gen value = `cleanvar'
                 
                 keep `addvars' variable varlabel value
-                if "`tempresults'" != "" {
-                    append using "`tempresults'"
-                }
-                save "`tempresults'", replace
+                append using "`results'", force
+                save "`results'", replace
             }
             restore
         }
         else {
             list `addvars' `var' if outlier, noobs sepby(`var')
         }
-        drop outlier `cleanvar'
     }
 
     * Final Excel export if requested
-    if "`excel_mode'" == "1" {
-        use "`tempresults'", clear
-        export excel using "`export'", firstrow(variables) sheet("Outliers") replace
-        di as green "Results exported to: `export'"
+    if "`export'" != "" {
+        use "`results'", clear
+        if _N > 0 {
+            export excel using "`export'", firstrow(variables) sheet("Outliers") replace
+            di as green "Results exported to: `export'"
+        }
+        else {
+            di as yellow "No outliers found to export"
+        }
     }
 
-    if !`already_preserved' restore
+    * Restore original data
+    use "`master_copy'", clear
     di as green "Outlier detection completed"
 end
