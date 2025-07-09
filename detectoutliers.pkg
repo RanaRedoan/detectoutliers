@@ -1,0 +1,6 @@
+v 3
+d detectoutliers: Generate outliers report of the dataset
+d distribution-date: 2024-07-09
+f src/detectoutliers.ado
+f src/detectoutliers.sthlp
+f examples/example.do
