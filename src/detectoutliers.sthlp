@@ -1,7 +1,7 @@
 {smcl}
 {* *! version 0.5 15aug2023}{...}
 {hline}
-help for {bf:detectoutliers}
+help for {bf:detectoutliers 1}
 {hline}
 
 {title:Title}
