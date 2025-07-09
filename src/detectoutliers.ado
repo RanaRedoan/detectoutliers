@@ -1,60 +1,53 @@
-*! detectoutliers v1.9 - Simplified in-place version
 program define detectoutliers
-    version 17
-    syntax varlist(numeric), ///
-        sd(real) ///
-        addvars(varlist) ///
-        [except(numlist)]
+    syntax varlist(numeric), sd(real) addvars(varlist) except(numlist) export(string) sheet(string) [, replace]
 
-    * Clear previous results if they exist
-    cap drop __variable __varlabel __value
-    
-    * Create empty dataset for results
     preserve
-    clear
-    tempfile results
-    save "`results'", emptyok replace
-    restore
 
-    * Process each variable
+    * Initialize row counter and Excel settings
+    local row = 1
+    local header = "firstrow(variables)"
+    local sheetsettings = "`replace'" == "replace" ? "sheetreplace" : "sheetmodify"
+
+    * Loop through each variable in varlist to detect outliers
     foreach var of varlist `varlist' {
-        * Handle exception values
-        tempvar cleanvar
-        gen `cleanvar' = `var'
-        if "`except'" != "" {
-            foreach val in `except' {
-                replace `cleanvar' = . if `var' == `val'
+        * Count non-missing observations
+        qui count if `var' != .
+        if r(N) > 0 {
+            * Set exception values (non-responses) to missing
+            foreach ex in `except' {
+                qui replace `var' = . if `var' == `ex'
             }
-        }
-
-        * Calculate outliers
-        qui sum `cleanvar', detail
-        gen outlier = !missing(`cleanvar') & ///
-                     (abs(`cleanvar' - r(mean)) > `sd' * r(sd))
-
-        * Store results
-        preserve
-        keep if outlier
-        if _N > 0 {
-            gen __variable = "`var'"
-            local varlabel : var label `var'
-            gen __varlabel = "`varlabel'"
-            gen __value = `cleanvar'
             
-            keep `addvars' __variable __varlabel __value
-            append using "`results'"
-            save "`results'", replace
+            * Create temporary variables for output
+            qui gen variable = "`var'"
+            local label : var label `var'
+            qui gen label = "`label'"
+            qui gen value = `var'
+            qui gen outlier = 0
+            
+            * Calculate mean and standard deviation
+            qui sum `var'
+            if r(N) > 0 {
+                * Mark outliers based on SD threshold
+                qui replace outlier = 1 if ((`var' > (r(mean) + `sd'*r(sd)) | `var' < (r(mean) - `sd'*r(sd))) & `var' != .)
+                
+                * Export to Excel if outliers exist
+                qui count if outlier == 1
+                if r(N) > 0 {
+                    qui export excel `addvars' variable label value if outlier == 1 using "`export'", ///
+                        sheet("`sheet'") `sheetsettings' `header' cell("A`row'")
+                    local row = `row' + r(N)
+                }
+                
+                * Reset header after first export
+                local header = ""
+                local sheetsettings = "sheetmodify"
+            }
+            
+            * Drop temporary variables
+            qui drop variable label value outlier
         }
-        restore
-        drop outlier `cleanvar'
     }
 
-    * Replace original data with results
-    use "`results'", clear
-    order `addvars' __variable __varlabel __value
-    label var __variable "Variable name"
-    label var __varlabel "Variable label"
-    label var __value "Outlier value"
-    
-    di as green "Outlier detection complete. Type 'br' to view results."
+    restore
 end
