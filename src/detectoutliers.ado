@@ -1,72 +1,73 @@
-```stata
+*! detectoutliers v2.1 - Perfect label handling
 program define detectoutliers
-    version 15
-    syntax varlist(numeric), SD(real) ADDvars(varlist) EXCEPT(numlist)
-    
-    * Save current dataset to a temporary file
-    tempfile original
-    quietly save "`original'"
-    
-    * Initialize a flag to track if any outliers are found
-    local any_outliers = 0
-    
-    * Loop through each variable in varlist
-    tempvar mean sd lower upper is_outlier
+    version 17
+    syntax varlist(numeric), ///
+        sd(real) ///
+        addvars(varlist) ///
+        [except(numlist)]
+
+    * Step 1: Create empty results template
+    clear
+    foreach v in `addvars' {
+        gen `v' = .
+        local addvars_labels `addvars_labels' `: var label `v''
+    }
+    gen variable = ""
+    gen varlabel = ""
+    gen value = .
+    tempfile results
+    save "`results'", emptyok
+
+    * Step 2: Process each variable
+    restore
     foreach var of varlist `varlist' {
-        * Load original dataset
-        use "`original'", clear
-        
-        * Calculate mean and standard deviation, excluding specified values
-        quietly summarize `var' if !inlist(`var', `except') & !missing(`var')
-        if r(N) > 0 {
-            scalar `mean' = r(mean)
-            scalar `sd' = r(sd)
-            
-            * Calculate lower and upper bounds for outliers
-            scalar `lower' = `mean' - `sd' * `r(sd)'
-            scalar `upper' = `mean' + `sd' * `r(sd)'
-            
-            * Generate outlier indicator
-            quietly gen `is_outlier' = (`var' < `lower' | `var' > `upper') & !inlist(`var', `except') & !missing(`var')
-            
-            * Keep only outlier observations
-            quietly keep if `is_outlier' == 1
-            
-            * Get variable label
-            local varlabel: variable label `var'
-            if "`varlabel'" == "" local varlabel "`var'"
-            
-            * Process outlier observations
-            if _N > 0 {
-                local any_outliers = 1
-                * Create output variables
-                quietly gen str32 variable = "`var'"
-                quietly gen str244 variable_label = "`varlabel'"
-                quietly gen double outlier_value = `var'
-                
-                * Keep only required variables
-                keep `addvars' variable variable_label outlier_value
-                
-                * Append to results dataset
-                tempfile temp
-                quietly save "`temp'", replace
-                if `any_outliers' == 1 & "`results_file'" != "" {
-                    append using "`results_file'"
-                }
-                quietly save "`results_file'", replace
+        * Handle exceptions
+        tempvar cleanvar
+        gen `cleanvar' = `var'
+        if "`except'" != "" {
+            foreach val in `except' {
+                replace `cleanvar' = . if `var' == `val'
             }
         }
+
+        * Detect outliers
+        qui sum `cleanvar', detail
+        gen outlier = !missing(`cleanvar') & ///
+                     (abs(`cleanvar' - r(mean)) > `sd' * r(sd))
+
+        * Store results
+        preserve
+        keep if outlier
+        if _N > 0 {
+            gen variable = "`var'"
+            gen varlabel = `"`: var label `var''"'
+            gen value = `cleanvar'
+            
+            keep `addvars' variable varlabel value
+            append using "`results'"
+            save "`results'", replace
+        }
+        restore
+        drop outlier `cleanvar'
     }
+
+    * Step 3: Prepare final output
+    use "`results'", clear
+    drop if missing(variable)
     
-    * Load results dataset if any outliers were found
-    if `any_outliers' {
-        use "`results_file'", clear
-        * Browse the resulting dataset
-        browse
+    * Apply variable labels
+    local i 1
+    foreach v in `addvars' {
+        label var `v' "`: word `i' of `addvars_labels''"
+        local ++i
     }
-    else {
-        di as text "No outliers detected."
-        clear
-    }
+    label var variable "Variable Name"
+    label var varlabel "Variable Label" 
+    label var value "Outlier Value"
+
+    * Display formatted results
+    list `addvars' variable varlabel value, noobs sepby(variable) ab(32)
+    
+    di _n as green "Outlier detection complete. Current dataset contains:"
+    describe `addvars' variable varlabel value, short
 end
-```
