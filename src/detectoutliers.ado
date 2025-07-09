@@ -1,28 +1,25 @@
-*! detectoutliers v1.0 - Identify outliers with customizable thresholds
+*! detectoutliers v1.1 - Robust outlier detection
 program define detectoutliers
     version 17
     syntax varlist(numeric) [if] [in], ///
-        SD(real)                       /// Standard deviation threshold (e.g., 3)
-        ADDVars(varlist)               /// ID/enumerator variables to keep
-        [EXCEPT(numlist)               /// Values to exclude (e.g., -99 999)
-         EXPORT(string)                /// Excel output file
-         SHEET(string)                 /// Excel sheet name
-         REPLACE]                     /// Overwrite existing file
+        sd(real)                     /// Standard deviation threshold
+        addvars(varlist)             /// Metadata variables to keep
+        [except(numlist)            /// Values to exclude from checks
+         export(string)            /// Excel output path
+         replace]                 /// Overwrite existing file
 
     * Preserve original data
     preserve
 
     * Apply [if]/[in] conditions
     marksample touse
-    keep if `touse'
+    qui keep if `touse'
 
-    * Initialize Excel export
+    * Initialize Excel export if requested
     if "`export'" != "" {
-        if "`sheet'" == "" local sheet "outliers"
-        local sheetsettings `"sheet("`sheet'")"'
-        if "`replace'" != "" local sheetsettings `"`sheetsettings' sheetreplace"'
-        else local sheetsettings `"`sheetsettings' sheetmodify"'
-        local header `"firstrow(variables)"'
+        local sheet "outliers"
+        cap rm "`export'"
+        local header "firstrow(variables)"
         local row = 1
     }
 
@@ -32,49 +29,46 @@ program define detectoutliers
         qui count if !missing(`var')
         if r(N) == 0 continue
 
-        * Handle exception values
+        * Create temporary valid marker
+        tempvar valid
+        gen `valid' = !missing(`var')
+        
+        * Apply exception values
         if "`except'" != "" {
-            tempvar valid
-            gen `valid' = 1
-            foreach exc in `except' {
-                replace `valid' = 0 if `var' == `exc'
+            foreach val in `except' {
+                replace `valid' = 0 if `var' == `val'
             }
-        }
-        else {
-            local valid 1
         }
 
         * Calculate outliers
         qui sum `var' if `valid'
-        gen outlier = (`var' > (r(mean) + `sd'*r(sd)) | ///
-                     (`var' < (r(mean) - `sd'*r(sd)) if `valid'
+        gen outlier = (abs(`var' - r(mean)) > `sd' * r(sd) if `valid'
 
         * Prepare output
         if "`export'" != "" {
-            tempfile tempout
+            preserve
             keep if outlier & `valid'
             if _N > 0 {
                 gen variable = "`var'"
-                loc label : var label `var'
+                local label : var label `var'
                 gen varlabel = "`label'"
                 gen outlier_value = `var'
                 
                 keep `addvars' variable varlabel outlier_value
-                export excel using "`export'", `sheetsettings' `header' cell("A`row'")
+                export excel using "`export'", sheet("`sheet'") `header' `replace'
                 
-                qui count
-                local row = `row' + r(N)
                 local header ""
-                local sheetsettings `"sheet("`sheet'") sheetmodify"'
+                local replace "sheetmodify"
             }
+            restore
         }
         else {
-            list `addvars' `var' if outlier & `valid', abbrev(32)
+            list `addvars' `var' if outlier, sepby(`var') noobs
         }
 
-        drop outlier
+        drop outlier `valid'
     }
 
     restore
-    di as green "Outlier detection complete"
+    di as green "Outlier detection completed"
 end
