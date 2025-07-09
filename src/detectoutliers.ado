@@ -1,32 +1,29 @@
-*! detectoutliers v1.6 - Fixed preserve/restore issue
+*! detectoutliers v1.7 - Fully robust version
 program define detectoutliers
     version 17
     syntax varlist(numeric), ///
-        sd(real)             ///
-        addvars(varlist)     ///
-        [except(numlist)]    ///
-        [export(string)]     ///
+        sd(real) ///
+        addvars(varlist) ///
+        [except(numlist)] ///
+        [export(string)] ///
         [replace]
-    
-    * Check preservation state
-    local preserved = c(preserved)
-    if !`preserved' preserve
-    
-    * Initialize Excel export
+
+    * Main preservation block
+    local already_preserved = c(preserved)
+    if !`already_preserved' preserve
+
+    * Initialize Excel export if requested
     if "`export'" != "" {
-        if "`replace'" != "" capture rm "`export'"
-        local row = 1
-        local header "firstrow(variables)"
-        local sheetsettings `"sheet("Outlier") sheetreplace"'
+        if "`replace'" != "" {
+            cap erase "`export'"
+        }
+        tempfile tempresults
+        local excel_mode 1
     }
 
     * Process each variable
     foreach var of varlist `varlist' {
-        * Skip if all missing
-        qui count if !missing(`var')
-        if r(N) == 0 continue
-        
-        * Handle exception values
+        * Create clean version (handling exceptions)
         tempvar cleanvar
         gen `cleanvar' = `var'
         if "`except'" != "" {
@@ -34,39 +31,43 @@ program define detectoutliers
                 replace `cleanvar' = . if `var' == `val'
             }
         }
-        
-        * Detect outliers
-        qui sum `cleanvar'
-        gen outlier = ((`cleanvar' > (r(mean) + `sd'*r(sd))) | ///
-                     ((`cleanvar' < (r(mean) - `sd'*r(sd)))) & ///
-                     !missing(`cleanvar')
-        
-        * Prepare output
-        if "`export'" != "" {
+
+        * Calculate outliers
+        qui sum `cleanvar', detail
+        gen outlier = !missing(`cleanvar') & ///
+                     (abs(`cleanvar' - r(mean)) > `sd' * r(sd)
+
+        * Handle output
+        if "`excel_mode'" == "1" {
             preserve
             keep if outlier
             if _N > 0 {
                 gen variable = "`var'"
                 local varlabel : var label `var'
-                gen label = "`varlabel'"
-                gen value = `var'
+                gen varlabel = "`varlabel'"
+                gen value = `cleanvar'
                 
-                keep `addvars' variable label value
-                export excel using "`export'", `sheetsettings' `header' cell("A`row'")
-                
-                local row = `row' + _N
-                local header ""
-                local sheetsettings `"sheet("Outlier") sheetmodify"'
+                keep `addvars' variable varlabel value
+                if "`tempresults'" != "" {
+                    append using "`tempresults'"
+                }
+                save "`tempresults'", replace
             }
             restore
         }
         else {
             list `addvars' `var' if outlier, noobs sepby(`var')
         }
-        
         drop outlier `cleanvar'
     }
-    
-    if !`preserved' restore
+
+    * Final Excel export if requested
+    if "`excel_mode'" == "1" {
+        use "`tempresults'", clear
+        export excel using "`export'", firstrow(variables) sheet("Outliers") replace
+        di as green "Results exported to: `export'"
+    }
+
+    if !`already_preserved' restore
     di as green "Outlier detection completed"
 end
