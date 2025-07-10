@@ -5,7 +5,6 @@
 program define detectoutliers
     version 15.0
     syntax varlist(numeric) , ///
-        Varlist(string asis) ///
         SD(real) ///
         Exclude(numlist) ///
         Output(string asis) ///
