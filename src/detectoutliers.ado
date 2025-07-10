@@ -19,7 +19,6 @@ program define detectoutliers
     save "`results'", emptyok
 
     * Step 2: Process each variable
-    restore
     foreach var of varlist `varlist' {
         * Handle exceptions
         tempvar cleanvar
