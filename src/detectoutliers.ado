@@ -1,37 +1,31 @@
-*! version 1.0.1
-*! Author: You
+*! version 1.0.2
 *! detectoutliers.ado
-
 program define detectoutliers
     version 15.0
     syntax varlist(numeric) , ///
-        SD(real) ///
-        Exclude(numlist) ///
-        Output(string asis) ///
-        Addivars(varlist)
+        sd(real) ///
+        exclude(numlist) ///
+        output(string asis) ///
+        addvars(varlist)
 
-    // Temp file to collect results
+    // Temp file to collect outliers
     tempfile outdata
     preserve
 
-    // Create a collector dataset
+    // Create empty collector
     clear
-    tempname results
-    tempfile resultsfile
-    save `resultsfile', emptyok
+    tempfile result
+    save `result', emptyok
 
-    // Go back to original data
+    // Restore original data
     restore, preserve
 
-    tokenize `varlist'
-
-    foreach var of local varlist {
+    foreach var of varlist `varlist' {
         quietly {
-            // Exclude values
-            local exclist `exclude'
-            gen byte _exclude_`var' = inlist(`var', `exclist')
+            // Step 1: Exclude values
+            gen byte _exclude_`var' = inlist(`var', `exclude')
 
-            // Calculate mean and sd excluding values
+            // Step 2: Calculate mean and sd excluding these
             summarize `var' if !_exclude_`var', meanonly
             scalar mu = r(mean)
             scalar sigma = r(sd)
@@ -42,23 +36,21 @@ program define detectoutliers
             preserve
                 keep if _isout_`var' == 1
 
-                // Collect relevant variables
                 gen strL variable = "`var'"
                 gen strL variable_label = "`: variable label `var''"
                 gen outlier_value = `var'
 
-                keep `addivars' variable variable_label outlier_value
-                append using `resultsfile'
-                save `resultsfile', replace
+                keep `addvars' variable variable_label outlier_value
+                append using `result'
+                save `result', replace
             restore
 
             drop _exclude_`var' _isout_`var'
         }
     }
 
-    // Load and export
-    use `resultsfile', clear
+    // Final export
+    use `result', clear
     export excel using "`output'", firstrow(variables) replace
-
-    display as result "Outliers exported to: `output'"
+    display as result "✅ Outliers exported to: `output'"
 end
