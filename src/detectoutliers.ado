@@ -1,4 +1,4 @@
-*! version 1.0.3
+*! version 1.0.4
 program define detectoutliers
     version 15.0
     syntax varlist(numeric) , ///
@@ -7,27 +7,23 @@ program define detectoutliers
         output(string) ///
         addvars(varlist)
 
-    // Create a temp file to collect all outliers
+    // Tempfile to collect outliers
     tempfile outcollect
-    preserve
-
     clear
-    tempfile result
-    save `result', emptyok
+    save `outcollect', emptyok
 
-    restore, preserve
-
+    // Loop over each variable
     foreach var of varlist `varlist' {
         quietly {
-            // Step 1: Create exclusion flag
+            // Step 1: Flag excluded values
             gen byte _exclude_`var' = inlist(`var', `exclude')
 
-            // Step 2: Mean & SD excluding flagged
+            // Step 2: Mean and SD excluding them
             summarize `var' if !_exclude_`var', meanonly
             scalar mu = r(mean)
             scalar sigma = r(sd)
 
-            // Step 3: Mark outliers
+            // Step 3: Flag outliers
             gen byte _outlier_`var' = 0
             replace _outlier_`var' = 1 if !_exclude_`var' & abs((`var' - mu)/sigma) > `sd'
 
@@ -39,15 +35,16 @@ program define detectoutliers
                 gen outlier_value = `var'
 
                 keep `addvars' variable variable_label outlier_value
-                append using `result'
-                save `result', replace
+                append using `outcollect'
+                save `outcollect', replace
             restore
 
             drop _exclude_`var' _outlier_`var'
         }
     }
 
-    use `result', clear
+    // Export to Excel
+    use `outcollect', clear
     export excel using "`output'", firstrow(variables) replace
     display as result "✅ Outliers exported to: `output'"
 end
